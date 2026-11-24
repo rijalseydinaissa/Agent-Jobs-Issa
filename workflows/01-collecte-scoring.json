@@ -1,0 +1,806 @@
+{
+  "id": "jobCollect000001",
+  "name": "1 · Offres remote → scoring Claude → validation Telegram",
+  "active": false,
+  "nodes": [
+    {
+      "id": "node-0007",
+      "name": "Toutes les 6 heures",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-0008",
+      "name": "Lancer maintenant",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "node-0009",
+      "name": "Lire mon profil",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "fileSelector": "/files/profile/profil.md",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-0010",
+      "name": "Extraire le texte du profil",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-0011",
+      "name": "Remotive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "url": "https://remotive.com/api/remote-jobs?limit=300",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "remote-job-agent (n8n, usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-0012",
+      "name": "RemoteOK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        200
+      ],
+      "parameters": {
+        "url": "https://remoteok.com/api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "remote-job-agent (n8n, usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-0013",
+      "name": "Himalayas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        400
+      ],
+      "parameters": {
+        "url": "https://himalayas.app/jobs/api?limit=20",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "remote-job-agent (n8n, usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-0014",
+      "name": "Jobicy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        600
+      ],
+      "parameters": {
+        "url": "https://jobicy.com/api/v2/remote-jobs?count=100",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "remote-job-agent (n8n, usage personnel)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-0015",
+      "name": "Fusionner les sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "numberInputs": 4
+      }
+    },
+    {
+      "id": "node-0001",
+      "name": "Normaliser et pré-filtrer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "  // Transforme les 4 formats d'API en un format commun, puis garde\n  // uniquement les offres récentes dont le titre/tags matchent vos mots-clés.\n  const split = (s) => (s || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);\n  const keywords = split($env.SEARCH_KEYWORDS);\n  const excluded = split($env.EXCLUDE_KEYWORDS);\n  const maxAgeMs = Number($env.MAX_AGE_DAYS || 14) * 86400000;\n\n  const stripHtml = (h) =>\n    String(h || '')\n      .replace(/<(br|\\/p|\\/li|\\/h\\d)[^>]*>/gi, '\\n')\n      .replace(/<[^>]+>/g, ' ')\n      .replace(/&nbsp;/g, ' ')\n      .replace(/&amp;/g, '&')\n      .replace(/&lt;/g, '<')\n      .replace(/&gt;/g, '>')\n      .replace(/&#0?39;|&rsquo;/g, \"'\")\n      .replace(/[ \\t]+/g, ' ')\n      .replace(/\\n\\s*\\n+/g, '\\n')\n      .trim();\n  const toIso = (v) => {\n    if (v === null || v === undefined || v === '') return '';\n    const d = typeof v === 'number' ? new Date(v < 1e12 ? v * 1000 : v) : new Date(String(v).replace(' ', 'T'));\n    return isNaN(d) ? '' : d.toISOString();\n  };\n  const salary = (min, max, cur) => (min || max ? `${min || '?'}–${max || '?'} ${cur || ''}`.trim() : '');\n  const mailto = (html, apply) => {\n    if (String(apply || '').startsWith('mailto:')) return apply.slice(7).split('?')[0];\n    const m = String(html || '').match(/mailto:([^\"'?\\s>]+)/i);\n    return m ? m[1] : '';\n  };\n\n  const offers = [];\n  const push = (o) => offers.push(o);\n\n  for (const { json: j } of $input.all()) {\n    if (!j || j.error) continue;\n    // RemoteOK : un item par offre (le 1er item est la mention légale)\n    if (j.position && j.id) {\n      push({\n        source: 'remoteok', external_id: String(j.id), title: j.position, company: j.company,\n        location: j.location || 'Remote', salary: salary(j.salary_min, j.salary_max, 'USD'),\n        tags: j.tags || [], url: j.url, apply_url: j.apply_url || j.url,\n        contact_email: mailto(j.description, j.apply_url), html: j.description, published_at: toIso(j.date),\n      });\n      continue;\n    }\n    for (const x of Array.isArray(j.jobs) ? j.jobs : []) {\n      if (x.candidate_required_location !== undefined) {\n        push({\n          source: 'remotive', external_id: String(x.id), title: x.title, company: x.company_name,\n          location: x.candidate_required_location, salary: x.salary || '',\n          tags: [...(x.tags || []), x.category].filter(Boolean), url: x.url, apply_url: x.url,\n          contact_email: mailto(x.description), html: x.description, published_at: toIso(x.publication_date),\n        });\n      } else if (x.applicationLink !== undefined || x.guid) {\n        push({\n          source: 'himalayas', external_id: String(x.guid || x.applicationLink), title: x.title, company: x.companyName,\n          location: (x.locationRestrictions || []).join(', ') || 'Worldwide',\n          salary: salary(x.minSalary, x.maxSalary, x.currency), tags: [...(x.categories || []), ...(x.seniority || [])],\n          url: x.guid || x.applicationLink, apply_url: x.applicationLink || x.guid,\n          contact_email: mailto(x.description, x.applicationLink), html: x.description, published_at: toIso(x.pubDate),\n        });\n      } else if (x.jobTitle) {\n        push({\n          source: 'jobicy', external_id: String(x.id), title: x.jobTitle, company: x.companyName,\n          location: x.jobGeo || 'Remote', salary: salary(x.annualSalaryMin, x.annualSalaryMax, x.salaryCurrency),\n          tags: [...(x.jobIndustry || []), ...(x.jobType || [])], url: x.url, apply_url: x.url,\n          contact_email: mailto(x.jobDescription), html: x.jobDescription, published_at: toIso(x.pubDate),\n        });\n      }\n    }\n  }\n\n  const seen = new Set();\n  const out = [];\n  for (const o of offers) {\n    if (!o.title || !o.url) continue;\n    const haystack = `${o.title} ${o.tags.join(' ')}`.toLowerCase();\n    if (keywords.length && !keywords.some((k) => haystack.includes(k))) continue;\n    if (excluded.some((k) => o.title.toLowerCase().includes(k))) continue;\n    if (o.published_at && Date.now() - new Date(o.published_at) > maxAgeMs) continue;\n    const dedupe_key = `${o.company || ''}|${o.title}`.toLowerCase().replace(/[^a-z0-9|]+/g, ' ').trim();\n    if (seen.has(dedupe_key)) continue;\n    seen.add(dedupe_key);\n    const { html, ...rest } = o;\n    out.push({\n      json: { ...rest, dedupe_key, tags: o.tags.join(', '), description: stripHtml(html).slice(0, 8000) },\n    });\n  }\n  return out;\n"
+      }
+    },
+    {
+      "id": "node-0016",
+      "name": "Enregistrer les nouvelles offres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1560,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO offers (source, external_id, dedupe_key, title, company, location, salary, tags,\n                    url, apply_url, contact_email, description, published_at)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, NULLIF($13, '')::timestamptz)\nON CONFLICT (dedupe_key) DO NOTHING;",
+        "options": {
+          "queryReplacement": "={{ [$json.source, $json.external_id, $json.dedupe_key, $json.title, $json.company ?? \"\", $json.location ?? \"\", $json.salary ?? \"\", $json.tags ?? \"\", $json.url, $json.apply_url ?? $json.url, $json.contact_email ?? \"\", $json.description ?? \"\", $json.published_at ?? \"\"] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jobsPgCred000001",
+          "name": "Postgres (jobs)"
+        }
+      }
+    },
+    {
+      "id": "node-0017",
+      "name": "Prendre la file d'attente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1780,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, source, title, company, location, salary, tags, url, apply_url, contact_email, description\nFROM offers\nWHERE status = 'new'\n  AND (published_at IS NULL OR published_at > now() - make_interval(days => $2::int))\nORDER BY published_at DESC NULLS LAST\nLIMIT $1::int;",
+        "options": {
+          "queryReplacement": "={{ [Number($env.MAX_OFFERS_PER_RUN || 15), Number($env.MAX_AGE_DAYS || 14)] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jobsPgCred000001",
+          "name": "Postgres (jobs)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "node-0002",
+      "name": "Préparer le scoring",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "  // Construit la requête Claude : score 0-100 avec sortie JSON garantie (structured outputs)\n  const profile = $('Extraire le texte du profil').first().json.data;\n  const model = $env.CLAUDE_MODEL || 'claude-opus-5-5';\n\n  const system = [\n    \"Tu es un recruteur technique exigeant et honnête. Tu évalues l'adéquation entre le profil d'un candidat et une offre d'emploi en télétravail.\",\n    'Barème : 90-100 = candidat idéal ; 70-89 = bon match, candidature recommandée ; 50-69 = match partiel ; < 50 = hors cible.',\n    \"Pénalise fortement : exigence de localisation/fuseau horaire incompatible avec le candidat, séniorité très différente, stack principale absente du profil, langue de travail non maîtrisée.\",\n    \"N'invente rien sur le candidat : base-toi uniquement sur le profil fourni.\",\n    'Réponds en français, raisons courtes et concrètes (max 3 de chaque).',\n  ].join('\\n');\n\n  return $input.all().map(({ json: offer }) => {\n    const request = {\n      model,\n      max_tokens: 4000,\n      output_config: {\n        effort: 'low',\n        format: {\n          type: 'json_schema',\n          schema: {\n            type: 'object',\n            properties: {\n              score: { type: 'integer', description: 'Adéquation de 0 à 100' },\n              verdict: { type: 'string', enum: ['postuler', 'a_voir', 'ignorer'] },\n              raisons: { type: 'array', items: { type: 'string' } },\n              points_manquants: { type: 'array', items: { type: 'string' } },\n              langue_offre: { type: 'string', description: \"Langue de l'offre, ex: anglais\" },\n            },\n            required: ['score', 'verdict', 'raisons', 'points_manquants', 'langue_offre'],\n            additionalProperties: false,\n          },\n        },\n      },\n      system,\n      messages: [\n        {\n          role: 'user',\n          content:\n            `<profil_candidat>\\n${profile}\\n</profil_candidat>\\n\\n` +\n            `<offre>\\nTitre : ${offer.title}\\nEntreprise : ${offer.company}\\nLocalisation acceptée : ${offer.location}\\n` +\n            `Salaire : ${offer.salary || 'non précisé'}\\nTags : ${offer.tags}\\n\\n${offer.description}\\n</offre>`,\n        },\n      ],\n    };\n    // Repli automatique sur un autre modèle si celui-ci refuse (non dispo sur Haiku)\n    if (!/haiku/.test(model)) request.fallbacks = 'default';\n    return { json: { offer, request } };\n  });\n"
+      }
+    },
+    {
+      "id": "node-0018",
+      "name": "Claude · scorer l’offre",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2440,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.ANTHROPIC_API_URL || 'https://api.anthropic.com') + '/v1/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2026-10-21"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "server-side-fallback-2026-07-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 180000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropicKey0001",
+          "name": "Anthropic API key"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "node-0003",
+      "name": "Lire le score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "  const prepared = $('Préparer le scoring').all();\n  const out = [];\n  $input.all().forEach(({ json: r }, i) => {\n    const offer = prepared[i].json.offer;\n    if (!Array.isArray(r.content)) {\n      // Erreur API : l'offre reste \"new\" et sera retentée au prochain passage\n      console.log(`Scoring impossible pour l'offre ${offer.id}`, JSON.stringify(r.error || r).slice(0, 300));\n      return;\n    }\n    let a = { score: 0, verdict: 'ignorer', raisons: [], points_manquants: [], langue_offre: '' };\n    if (r.stop_reason === 'refusal') {\n      a.raisons = ['Le modèle a refusé de traiter cette offre'];\n    } else {\n      try {\n        a = JSON.parse(r.content.filter((b) => b.type === 'text').map((b) => b.text).join(''));\n      } catch (e) {\n        console.log(`Réponse illisible pour l'offre ${offer.id}`);\n        return;\n      }\n    }\n    out.push({\n      json: {\n        ...offer,\n        score: Math.max(0, Math.min(100, Number(a.score) || 0)),\n        analysis: { verdict: a.verdict, raisons: a.raisons, points_manquants: a.points_manquants, langue_offre: a.langue_offre },\n      },\n    });\n  });\n  return out;\n"
+      }
+    },
+    {
+      "id": "node-0020",
+      "name": "Score suffisant ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "node-0019",
+              "leftValue": "={{ $json.score }}",
+              "rightValue": "={{ Number($env.MIN_SCORE || 70) }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-0021",
+      "name": "Classer : score trop bas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3100,
+        460
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE offers SET score = $1::int, analysis = $2::jsonb, status = 'filtered' WHERE id = $3::int;",
+        "options": {
+          "queryReplacement": "={{ [$json.score, JSON.stringify($json.analysis), $json.id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jobsPgCred000001",
+          "name": "Postgres (jobs)"
+        }
+      }
+    },
+    {
+      "id": "node-0004",
+      "name": "Préparer la lettre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3100,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "  const profile = $('Extraire le texte du profil').first().json.data;\n  const model = $env.CLAUDE_MODEL || 'claude-opus-5-5';\n  const name = $env.CANDIDATE_NAME || '';\n\n  const system = [\n    `Tu rédiges des candidatures spontanées et sobres pour ${name}.`,\n    \"Écris dans la langue de l'offre. Ton direct et professionnel, sans formules creuses ni superlatifs.\",\n    \"Corps de l'email : 150 à 230 mots, 3 paragraphes courts : (1) le poste visé et pourquoi cette entreprise, \" +\n      '(2) 2-3 réalisations du profil qui répondent précisément aux exigences de l\\'offre, (3) disponibilité et appel à un échange.',\n    \"N'invente AUCUNE expérience, compétence, chiffre ou diplôme absent du profil. Mentionne que le CV est en pièce jointe.\",\n    `Termine par la signature : ${name}. Pas de placeholder entre crochets.`,\n  ].join('\\n');\n\n  return $input.all().map(({ json: offer }) => {\n    const request = {\n      model,\n      max_tokens: 8000,\n      output_config: {\n        effort: 'medium',\n        format: {\n          type: 'json_schema',\n          schema: {\n            type: 'object',\n            properties: {\n              objet: { type: 'string', description: \"Objet de l'email de candidature\" },\n              lettre: { type: 'string', description: \"Corps de l'email, prêt à envoyer\" },\n            },\n            required: ['objet', 'lettre'],\n            additionalProperties: false,\n          },\n        },\n      },\n      system,\n      messages: [\n        {\n          role: 'user',\n          content:\n            `<profil_candidat>\\n${profile}\\n</profil_candidat>\\n\\n` +\n            `<offre>\\nTitre : ${offer.title}\\nEntreprise : ${offer.company}\\n\\n${offer.description}\\n</offre>\\n\\n` +\n            `<analyse_adequation>\\nPoints forts : ${(offer.analysis.raisons || []).join(' ; ')}\\n</analyse_adequation>`,\n        },\n      ],\n    };\n    if (!/haiku/.test(model)) request.fallbacks = 'default';\n    return { json: { offer, request } };\n  });\n"
+      }
+    },
+    {
+      "id": "node-0022",
+      "name": "Claude · rédiger la candidature",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3320,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.ANTHROPIC_API_URL || 'https://api.anthropic.com') + '/v1/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2026-10-21"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "server-side-fallback-2026-07-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 180000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropicKey0001",
+          "name": "Anthropic API key"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "node-0005",
+      "name": "Lire la lettre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3540,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "  const prepared = $('Préparer la lettre').all();\n  const out = [];\n  $input.all().forEach(({ json: r }, i) => {\n    const offer = prepared[i].json.offer;\n    if (!Array.isArray(r.content) || r.stop_reason === 'refusal') {\n      console.log(`Lettre impossible pour l'offre ${offer.id}`, JSON.stringify(r.error || r.stop_reason).slice(0, 300));\n      return;\n    }\n    try {\n      const l = JSON.parse(r.content.filter((b) => b.type === 'text').map((b) => b.text).join(''));\n      out.push({ json: { ...offer, email_subject: l.objet, cover_letter: l.lettre } });\n    } catch (e) {\n      console.log(`Lettre illisible pour l'offre ${offer.id}`);\n    }\n  });\n  return out;\n"
+      }
+    },
+    {
+      "id": "node-0023",
+      "name": "Mettre en attente de validation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3760,
+        200
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE offers\nSET score = $1::int, analysis = $2::jsonb, email_subject = $3, cover_letter = $4, status = 'pending_review'\nWHERE id = $5::int\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [$json.score, JSON.stringify($json.analysis), $json.email_subject, $json.cover_letter, $json.id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "jobsPgCred000001",
+          "name": "Postgres (jobs)"
+        }
+      }
+    },
+    {
+      "id": "node-0006",
+      "name": "Composer le message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3980,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n  return $input.all().map(({ json: o }) => {\n    const a = o.analysis || {};\n    const lines = [\n      `🎯 <b>${o.score}/100 — ${esc(o.title)}</b>`,\n      `🏢 ${esc(o.company || '?')}  ·  📍 ${esc(o.location || 'Remote')}${o.salary ? '  ·  💰 ' + esc(o.salary) : ''}`,\n      `🔎 ${esc(o.source)}  ·  <a href=\"${esc(o.url)}\">voir l'offre</a>`,\n      '',\n      '✅ <b>Points forts</b>',\n      ...(a.raisons || []).map((x) => '• ' + esc(x)),\n    ];\n    if ((a.points_manquants || []).length) {\n      lines.push('', '⚠️ <b>Points faibles</b>', ...a.points_manquants.map((x) => '• ' + esc(x)));\n    }\n    lines.push(\n      '',\n      o.contact_email\n        ? `📧 Si vous validez : email envoyé à <b>${esc(o.contact_email)}</b> avec votre CV.`\n        : \"🔗 Si vous validez : pas d'email de contact, le lien pour postuler vous sera renvoyé (lettre prête ci-dessous).\",\n      '',\n      `✉️ <b>Objet :</b> ${esc(o.email_subject)}`,\n      '',\n      esc(o.cover_letter),\n    );\n    let text = lines.join('\\n');\n    if (text.length > 4000) text = text.slice(0, 3990) + '…';\n    return { json: { id: o.id, text } };\n  });\n"
+      }
+    },
+    {
+      "id": "node-0024",
+      "name": "Demander ma validation",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4200,
+        200
+      ],
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.text }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Postuler",
+                    "additionalFields": {
+                      "callback_data": "={{ 'apply:' + $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Rejeter",
+                    "additionalFields": {
+                      "callback_data": "={{ 'reject:' + $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "telegramBot00001",
+          "name": "Telegram bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Toutes les 6 heures": {
+      "main": [
+        [
+          {
+            "node": "Lire mon profil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lancer maintenant": {
+      "main": [
+        [
+          {
+            "node": "Lire mon profil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire mon profil": {
+      "main": [
+        [
+          {
+            "node": "Extraire le texte du profil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraire le texte du profil": {
+      "main": [
+        [
+          {
+            "node": "Remotive",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RemoteOK",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Himalayas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Jobicy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remotive": {
+      "main": [
+        [
+          {
+            "node": "Fusionner les sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RemoteOK": {
+      "main": [
+        [
+          {
+            "node": "Fusionner les sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Himalayas": {
+      "main": [
+        [
+          {
+            "node": "Fusionner les sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Jobicy": {
+      "main": [
+        [
+          {
+            "node": "Fusionner les sources",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Fusionner les sources": {
+      "main": [
+        [
+          {
+            "node": "Normaliser et pré-filtrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliser et pré-filtrer": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer les nouvelles offres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enregistrer les nouvelles offres": {
+      "main": [
+        [
+          {
+            "node": "Prendre la file d'attente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prendre la file d'attente": {
+      "main": [
+        [
+          {
+            "node": "Préparer le scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer le scoring": {
+      "main": [
+        [
+          {
+            "node": "Claude · scorer l’offre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude · scorer l’offre": {
+      "main": [
+        [
+          {
+            "node": "Lire le score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire le score": {
+      "main": [
+        [
+          {
+            "node": "Score suffisant ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score suffisant ?": {
+      "main": [
+        [
+          {
+            "node": "Préparer la lettre",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classer : score trop bas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer la lettre": {
+      "main": [
+        [
+          {
+            "node": "Claude · rédiger la candidature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude · rédiger la candidature": {
+      "main": [
+        [
+          {
+            "node": "Lire la lettre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire la lettre": {
+      "main": [
+        [
+          {
+            "node": "Mettre en attente de validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mettre en attente de validation": {
+      "main": [
+        [
+          {
+            "node": "Composer le message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Composer le message": {
+      "main": [
+        [
+          {
+            "node": "Demander ma validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Dakar"
+  },
+  "pinData": {}
+}

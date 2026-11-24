@@ -1,0 +1,7 @@
+.env
+.import/
+profile/profil.md
+profile/*.pdf
+profile/cv-en.html
+.idea/
+.DS_Store

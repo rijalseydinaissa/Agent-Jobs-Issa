@@ -1,0 +1,22 @@
+# Ajoute de faux serveurs Claude/Telegram et un faux SMTP pour les tests de bout en bout.
+# Utilisé par tests/e2e.sh — ne pas utiliser en production.
+services:
+  n8n:
+    depends_on:
+      mock:
+        condition: service_started
+      mailpit:
+        condition: service_started
+
+  mock:
+    image: node:20-alpine
+    command: ["node", "/app/mock-apis.mjs"]
+    volumes:
+      - ./tests/mock-apis.mjs:/app/mock-apis.mjs:ro
+    ports:
+      - "18080:8080"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "18025:8025"
