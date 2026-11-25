@@ -302,7 +302,7 @@ const prepLetter = code('Préparer la lettre', [3100, 200], function () {
 
   const system = [
     `Tu rédiges des candidatures spontanées et sobres pour ${name}.`,
-    "Écris dans la langue de l'offre. Ton direct et professionnel, sans formules creuses ni superlatifs.",
+    "Écris dans la langue indiquée à la fin du message (celle de l'offre). Ton direct et professionnel, sans formules creuses ni superlatifs.",
     "Corps de l'email : 150 à 230 mots, 3 paragraphes courts : (1) le poste visé et pourquoi cette entreprise, " +
       '(2) 2-3 réalisations du profil qui répondent précisément aux exigences de l\'offre, (3) disponibilité et appel à un échange.',
     "N'invente AUCUNE expérience, compétence, chiffre ou diplôme absent du profil. Mentionne que le CV est en pièce jointe.",
@@ -310,6 +310,8 @@ const prepLetter = code('Préparer la lettre', [3100, 200], function () {
   ].join('\n');
 
   return $input.all().map(({ json: offer }) => {
+    // Langue imposée explicitement : sinon le prompt en français entraîne des lettres en français
+    const lang = /fran|french/i.test(offer.analysis.langue_offre || '') ? 'français' : 'anglais (English)';
     const request = {
       model,
       max_tokens: 8000,
@@ -335,7 +337,8 @@ const prepLetter = code('Préparer la lettre', [3100, 200], function () {
           content:
             `<profil_candidat>\n${profile}\n</profil_candidat>\n\n` +
             `<offre>\nTitre : ${offer.title}\nEntreprise : ${offer.company}\n\n${offer.description}\n</offre>\n\n` +
-            `<analyse_adequation>\nPoints forts : ${(offer.analysis.raisons || []).join(' ; ')}\n</analyse_adequation>`,
+            `<analyse_adequation>\nPoints forts : ${(offer.analysis.raisons || []).join(' ; ')}\n</analyse_adequation>\n\n` +
+            `Langue de rédaction OBLIGATOIRE pour l'objet et la lettre : ${lang}.`,
         },
       ],
     };
